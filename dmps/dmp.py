@@ -37,7 +37,7 @@ def canonical_rollout(start_val, ax, dt, time_span=1.0, tau=1.0):
 
     for t in range(1, T):
         x_t[t] = canonical_step(x_t[t-1], ax, dt, tau)
-    
+
     return x_t
 
 def canonical_step(x, ax, dt, tau=1.0):
@@ -66,8 +66,8 @@ class DMP():
         self.h = 1.0 / (np.append(self.h, self.h[-1]))
 
         # Torch equivalents
-        self.t_h = torch.from_numpy(self.h).to(dtype=torch.float, device=torch.device("cuda"))
-        self.t_c = torch.from_numpy(self.c).to(dtype=torch.float, device=torch.device("cuda"))
+        self.t_h = torch.from_numpy(self.h).to(dtype=torch.float, device=torch.device("cpu"))
+        self.t_c = torch.from_numpy(self.c).to(dtype=torch.float, device=torch.device("cpu"))
 
 
     def step(self, x, y, dy, tau=1.0):
@@ -145,9 +145,9 @@ class DMP():
     def rollout_torch(self, starts, goals, weights, time_span=1.0, tau=1.0):
         scaled_tsteps = int((time_span / self.dt) / tau)
         batch_size = starts.shape[0]
-        y_track = torch.zeros((batch_size, scaled_tsteps, self.dims), device=torch.device("cuda"))
-        dy_track = torch.zeros((batch_size, scaled_tsteps, self.dims), device=torch.device("cuda"))
-        ddy_track = torch.zeros((batch_size, scaled_tsteps, self.dims), device=torch.device("cuda"))
+        y_track = torch.zeros((batch_size, scaled_tsteps, self.dims), device=torch.device("cpu"))
+        dy_track = torch.zeros((batch_size, scaled_tsteps, self.dims), device=torch.device("cpu"))
+        ddy_track = torch.zeros((batch_size, scaled_tsteps, self.dims), device=torch.device("cpu"))
 
         y_track[:, 0] = starts.reshape(batch_size, -1)
 
@@ -166,7 +166,7 @@ class DMP():
         return y_track, dy_track, ddy_track
 
 
-    
+
 def interpolated_path(recorded_ys, T):
     num_points, dims = recorded_ys.shape[0], recorded_ys.shape[1]
     path = np.zeros((dims, T))
@@ -225,7 +225,7 @@ def imitate_path(y_d, dmp):
     f_target = (ddy_d.T + D * dy_d.T) / K - (dmp.goal - path.T) + (dmp.goal - dmp.y0) * np.tile(x_track, (dims, 1)).T
 
     # efficiently generate weights to realize f_target
-    weights = gen_weights(f_target, y_start, y_goal, dmp) 
+    weights = gen_weights(f_target, y_start, y_goal, dmp)
 
     return path, weights
 
