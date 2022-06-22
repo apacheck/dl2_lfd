@@ -8,7 +8,7 @@ import os
 from os.path import join
 
 
-def load_dmp_demos(demos_folder):
+def load_dmp_demos(demos_folder, n_points=20):
     start_state_paths = sorted([d for d in os.listdir(demos_folder) if "start-state" in d])
     rollout_paths = sorted([d for d in os.listdir(demos_folder) if "rollout" in d])
 
@@ -16,7 +16,7 @@ def load_dmp_demos(demos_folder):
     rollouts = np.stack([np.loadtxt(join(demos_folder, rp), ndmin=2) for rp in rollout_paths])
 
     # Note: May need to make this configurable later
-    interp_rollout = interpolated_path_batch(rollouts, 100)
+    interp_rollout = interpolated_path_batch(rollouts, n_points)
 
     return start_states, interp_rollout
 
