@@ -118,11 +118,11 @@ def training_loop(train_set, val_set, constraint, enforce_constraint, adversaria
         else:
             print("e{}\t t: {} time: {}".format(epoch, avg_train_loss[0, :2]), time.time() - epoch_start)
 
-        np.save(join(results_folder, "learned_rollouts_epoch" + str(epoch) + ".txt"), learned_rollouts_epoch)
-        np.save(join(results_folder, "c_sat_epoch" + str(epoch) + ".txt"), c_sat_epoch)
+        np.save(join(results_folder, "learned_rollouts_epoch_{:03d}".format(epoch)), learned_rollouts_epoch)
+        np.save(join(results_folder, "c_sat_epoch_{:03d}".format(epoch)), c_sat_epoch)
 
-        # if epoch % 10 == 0:
-        #     torch.save(model.state_dict(), join(results_folder, "learned_model_epoch_{}.pt".format(epoch)))
+        if epoch % 10 == 0:
+            torch.save(model.state_dict(), join(results_folder, "learned_model_epoch_{}.pt".format(epoch)))
             
     torch.save(model.state_dict(), join(results_folder, "learned_model_epoch_final.pt"))
     if output_model_path is not None:
@@ -132,7 +132,104 @@ def training_loop(train_set, val_set, constraint, enforce_constraint, adversaria
     return model
 
 
-def evaluate_constraint(val_set, constraint, model_path, basis_fs=30, dt=0.01, n_epochs=200, output_dimension=6):
+# def evaluate_constraint(val_set, constraint, model_path, basis_fs=30, dt=0.01, output_dimension=6):
+#     """ Evaluates a given constraint for a set of inputs given a model
+#
+#     Args:
+#         val_set:
+#         constraint:
+#         model_path:
+#         basis_fs:
+#         dt:
+#         n_epochs:
+#     Return:
+#         losses (constraint loss, percent satisfying constraint)
+#         learned rollouts
+#         constraint satisfaction for rollout
+#     """
+#     in_dim = val_set[0][0].numel()
+#     model = DMPNN(in_dim, 1024, output_dimension, basis_fs)
+#     model.load_state_dict(torch.load(model_path))
+#     model.eval()
+#     loss_fn = rollout_error
+#
+#     val_loader = DataLoader(val_set, shuffle=False, batch_size=32)
+#     learned_rollouts_out = None
+#     c_sat_out = None
+#     losses = []
+#
+#     def batch_learn(data_loader, enf_c, adv, optimize=False):
+#         """ Performs the learning for the weights of the dmp
+#
+#         Takes in the constraints and data and performs learning. Accesses the opt and model loaded in the outside
+#         function. Returns the loss, learned rollouts, and a mask of the rollouts that satisfy the constraint
+#
+#         Args:
+#             data_loader:
+#             enf_c:
+#             adv:
+#             optimize:
+#
+#         Return:
+#             Losses are:
+#                 [0] main_loss = how close it is to the old trajectories
+#                 [1] constraint_loss = how it satisfies the ltl constraint
+#                 [2] full_loss = combination of main_loss and constraint_loss
+#                 [3] What percent of trajectories satisfy the ltl constraint
+#             learned_rollouts
+#             constraint_satisfaction
+#         """
+#         losses = []
+#         learned_rollouts_out = None
+#         c_sat_out = None
+#         for batch_idx, (starts, rollouts) in enumerate(data_loader):
+#             #print("Model Params {} \n".format(list(model.parameters())))
+#             batch_size, T, dims = rollouts.shape
+#             # print("B: {}".format(batch_idx))
+#
+#             learned_weights = model(starts)
+#             dmp = DMP(basis_fs, dt, dims)
+#             learned_rollouts = dmp.rollout_torch(starts[:, 0], starts[:, -1], learned_weights)[0]
+#
+#             main_loss = loss_fn(learned_rollouts, rollouts)
+#
+#             if constraint is None:
+#                 c_loss, c_sat = torch.tensor([0]), torch.ones([starts.shape[0]])
+#             else:
+#                 c_loss, c_sat = oracle.evaluate_constraint(
+#                     starts, rollouts, constraint, model, dmp.rollout_torch, adv)
+#
+#             # if enf_c:
+#             #     full_loss = main_loss_weight * main_loss + constraint_loss_weight * c_loss
+#             # else:
+#             #     full_loss = main_loss
+#
+#             losses.append([main_loss.item(), c_loss.item(), np.mean(c_sat.cpu().detach().numpy())])
+#
+#             if learned_rollouts_out is None:
+#                 learned_rollouts_out = learned_rollouts.cpu().detach().numpy()
+#                 c_sat_out = c_sat.cpu().detach().numpy().astype(bool)
+#             else:
+#                 learned_rollouts_out = np.stack([learned_rollouts_out, learned_rollouts.cpu().detach().numpy()])
+#                 c_sat_out = np.stack([c_sat_out, c_sat.cpu().detach().numpy().astype(bool)])
+#
+#             if optimize:
+#                 optimizer.zero_grad()
+#                 full_loss.backward()
+#                 optimizer.step()
+#
+#         return np.mean(losses, 0, keepdims=True), learned_rollouts_out, c_sat_out
+#
+#     model.eval()
+#     avg_val_loss, learned_rollouts_out, c_sat_out = batch_learn(val_loader, True, False, False)
+#     # val_losses.append(avg_val_loss[0])
+#
+#     print("e{}\t t: v: {}".format(0, avg_val_loss[0, :]))
+#
+#     return avg_val_loss, learned_rollouts_out, c_sat_out
+
+
+def evaluate_constraint(val_set, constraint, model_path, basis_fs=30, dt=0.01, output_dimension=6):
     """ Evaluates a given constraint for a set of inputs given a model
 
     Args:
@@ -150,6 +247,53 @@ def evaluate_constraint(val_set, constraint, model_path, basis_fs=30, dt=0.01, n
     in_dim = val_set[0][0].numel()
     model = DMPNN(in_dim, 1024, output_dimension, basis_fs)
     model.load_state_dict(torch.load(model_path))
+    model.eval()
+
+    val_loader = DataLoader(val_set, shuffle=False, batch_size=32)
+    learned_rollouts_out = None
+    c_sat_out = None
+    losses = []
+
+    for batch_idx, (starts, rollouts) in enumerate(val_loader):
+        batch_size, T, dims = rollouts.shape
+
+        learned_weights = model(starts)
+        dmp = DMP(basis_fs, dt, dims)
+        learned_rollouts = dmp.rollout_torch(starts[:, 0], starts[:, -1], learned_weights)[0]
+
+        if constraint is None:
+            c_loss, c_sat = torch.tensor([0]), torch.ones([starts.shape[0]])
+        else:
+            c_loss, c_sat = oracle.evaluate_constraint(
+                starts, rollouts, constraint, model, dmp.rollout_torch, False)
+        losses.append([c_loss.item(), np.mean(c_sat.cpu().detach().numpy())])
+
+        if learned_rollouts_out is None:
+            learned_rollouts_out = learned_rollouts.cpu().detach().numpy()
+            c_sat_out = c_sat.cpu().detach().numpy().astype(bool)
+        else:
+            learned_rollouts_out = np.stack([learned_rollouts_out, learned_rollouts.cpu().detach().numpy()])
+            c_sat_out = np.stack([c_sat_out, c_sat.cpu().detach().numpy().astype(bool)])
+
+    return np.mean(losses, 0, keepdims=True), learned_rollouts_out, c_sat_out
+
+
+def evaluate_model(val_set, constraint, model, basis_fs=30, dt=0.01, output_dimension=6):
+    """ Evaluates a given constraint for a set of inputs given a model
+
+    Args:
+        val_set:
+        constraint:
+        model_path:
+        basis_fs:
+        dt:
+        n_epochs:
+    Return:
+        losses (constraint loss, percent satisfying constraint)
+        learned rollouts
+        constraint satisfaction for rollout
+    """
+    in_dim = val_set[0][0].numel()
     model.eval()
 
     val_loader = DataLoader(val_set, shuffle=False, batch_size=32)
